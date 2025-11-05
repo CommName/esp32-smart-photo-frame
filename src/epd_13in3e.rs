@@ -67,7 +67,7 @@ impl EPD13in3e {
         EPD13in3e { config }
     }
 
-    fn cs_all(&mut self, high: bool) {
+    pub fn cs_all(&mut self, high: bool) {
         if high {
             self.config.cs_m.set_high();
             self.config.cs_s.set_high();
@@ -100,7 +100,7 @@ impl EPD13in3e {
         self.config.spi_write_byte(data);
     }
 
-    fn send_data_bytes(&mut self, data: &[u8]) {
+    pub fn send_data_bytes(&mut self, data: &[u8]) {
         self.config.dc.set_high();
         self.config.spi_write_bytes(data);
     }
@@ -117,7 +117,7 @@ impl EPD13in3e {
         self.config.delay_ms(20);
     }
 
-    fn turn_on_display(&mut self) {
+    pub fn turn_on_display(&mut self) {
         self.cs_all(false);
         self.send_command(PON);
         self.cs_all(true);
@@ -235,6 +235,18 @@ impl EPD13in3e {
         self.cs_all(true);
 
         self.turn_on_display();
+    }
+
+    pub fn set_left_panel(&mut self) {
+        self.cs_all(true);
+        self.config.cs_m.set_low();
+        self.send_command(DTM);
+    }
+
+    pub fn set_right_panel(&mut self) {
+        self.cs_all(true);
+        self.config.cs_s.set_low();
+        self.send_command(DTM);
     }
 
     pub fn display(&mut self, image: &[u8]) {

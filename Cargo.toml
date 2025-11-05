@@ -9,12 +9,34 @@ name = "smart-picture-frame"
 path = "./src/bin/main.rs"
 
 [dependencies]
-esp-hal = { version = "1.0.0", features = ["esp32"] }
-
-
+blocking-network-stack = { git = "https://github.com/bjoernQ/blocking-network-stack.git", rev = "b3ecefc" }
+esp-hal = { version = "1.0.0", features = ["esp32", "unstable"] }
+esp-rtos = { version = "0.2.0", features = ["esp-alloc", "esp-radio", "esp32"] }
 esp-bootloader-esp-idf = { version = "0.4.0", features = ["esp32"] }
-
 critical-section = "1.2.0"
+embedded-io = "0.6.1"
+esp-alloc = "0.9.0"
+esp-radio = { version = "0.17.0", features = [
+  "esp-alloc",
+  "esp32",
+  "smoltcp",
+  "unstable",
+  "wifi",
+] }
+smoltcp = { version = "0.12.0", default-features = false, features = [
+  "medium-ethernet",
+  "multicast",
+  "proto-dhcpv4",
+  "proto-dns",
+  "proto-ipv4",
+  "socket-dns",
+  "socket-icmp",
+  "socket-raw",
+  "socket-tcp",
+  "socket-udp",
+] }
+log = "0.4.22"
+esp-println = { version = "0.13.0", features = ["esp32", "log"] }
 
 
 [profile.dev]
