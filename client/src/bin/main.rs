@@ -22,7 +22,7 @@ use esp_hal::timer::timg::TimerGroup;
 use esp_hal::{main, time};
 use esp_println::println;
 use smart_picture_frame::dev_config::DevConfig;
-use smart_picture_frame::epd_13in3e::{Color, EPD_HEIGHT, EPD_WIDTH, EPD13in3e};
+use smart_picture_frame::epd_13in3e::{Color, EPD13in3e, EPD_HEIGHT, EPD_WIDTH};
 use smart_picture_frame::wifi::*;
 use smoltcp::iface::{SocketSet, SocketStorage};
 use smoltcp::wire::IpAddress;
@@ -41,19 +41,19 @@ esp_bootloader_esp_idf::esp_app_desc!();
 
 const STATIC_IP: &str = "192.168.8.201";
 const GATEWAY_IP: &str = "192.168.8.1";
-const SSID: &str = "WIFI";
-const PASSWORD: &str = "PASSWORD";
+const SSID: &str = "";
+const PASSWORD: &str = "";
 
 #[main]
 fn main() -> ! {
     // Initialize println and logging support
-    esp_println::logger::init_logger(log::LevelFilter::Debug);
+    esp_println::logger::init_logger(log::LevelFilter::Info);
 
     // Both println! and log macros are now available
     println!("=== ESP32 Smart Photo Frame Starting ===");
     info!("Starting ESP32 Smart Photo Frame");
-    let config = esp_hal::Config::default().with_cpu_clock(CpuClock::max());
-    info!("Initializing ESP32 HAL with max CPU clock");
+    let config = esp_hal::Config::default().with_cpu_clock(CpuClock::_80MHz);
+    info!("Initializing ESP32 HAL with 80 MHz CPU clock");
     let peripherals = esp_hal::init(config);
     info!("ESP32 HAL initialized successfully");
 
@@ -151,71 +151,102 @@ fn main() -> ! {
 
     // Wait
     info!("Waiting 5 seconds for display to settle");
-    let delay_start = Instant::now();
-    while delay_start.elapsed() < Duration::from_millis(5000) {}
+    // let delay_start = Instant::now();
+    // while delay_start.elapsed() < Duration::from_millis(5000) {}
+    // epd.clear(Color::Blue);
 
     info!("Creating socket from network stack");
     let mut socket = stack.get_socket(&mut rx_buffer, &mut tx_buffer);
     socket.work();
     info!("Socket created and initialized");
 
-    info!("Opening connection to server 192.168.8.8:3000");
+    info!("Opening connection to server 192.168.8.8:4000");
     socket
-        .open(IpAddress::Ipv4(Ipv4Addr::new(192, 168, 8, 8)), 3000)
+        .open(IpAddress::Ipv4(Ipv4Addr::new(192, 168, 8, 8)), 4000)
         .unwrap();
     info!("Connection established");
 
-    info!("Sending HTTP request: GET /next-picture");
-    socket.write(b"GET /next-picture HTTP/1.0\r\n\r\n").unwrap();
-    socket.flush().unwrap();
+    // info!("Sending HTTP request: GET /next-picture");
+    // socket.write(b"GET /next-picture HTTP/1.0\r\n\r\n").unwrap();
+    // socket.flush().unwrap();
     info!("HTTP request sent");
 
     info!("Starting to receive image data");
     let mut bytes_read = 0;
     let mut header_read = false;
     let mut left_size = true;
+    epd.cs_all(true);
+    epd.set_left_panel();
+    info!(
+        "Limit set to {} bytes",
+        EPD_WIDTH as usize * EPD_HEIGHT as usize / 4
+    );
+
+    if let Err(e) = socket.write(b"OK") {
+        log::error!("Failed to send data: {e:?}");
+    }
+    if let Err(e) = socket.flush() {
+        log::error!("Failed to flush data: {e:?}");
+    }
+
     loop {
+        socket.work();
         let mut response_buffer = [0u8; 1024];
-        let Ok(response) = socket.read(&mut response_buffer) else {
-            break;
+        let response = match socket.read(&mut response_buffer) {
+            Ok(size) => size,
+            Err(e) => {
+                log::error!("Failed to read data: {e:?}");
+                break;
+            }
         };
-        debug!("Received {} bytes from server", response);
 
-        if !header_read {
-            // Simple header parsing to skip HTTP headers
-            if let Some(header_end) = response_buffer[..response]
-                .windows(4)
-                .position(|window| window == b"\r\n\r\n")
-            {
-                info!("HTTP headers parsed, starting image data reception");
-                let image_start = header_end + 4;
-                let image_bytes = response - image_start;
-                epd.set_right_panel();
-                epd.send_data_bytes(&response_buffer[image_start..response]);
-                //image_data.extend_from_slice(&response_buffer[image_start..response]);
-                bytes_read += image_bytes;
-                header_read = true;
-                debug!("First image chunk: {} bytes", image_bytes);
-            }
-        } else {
-            let limit = EPD_WIDTH as usize * EPD_HEIGHT as usize / 4;
-            if left_size && (bytes_read + response >= limit) {
-                epd.send_data_bytes(&response_buffer[..limit - bytes_read]);
-
-                epd.set_left_panel();
-                left_size = false;
-            } else {
-                epd.send_data_bytes(&response_buffer[..response]);
-                bytes_read += response;
-            }
-
-            debug!("Total image data received: {} bytes", bytes_read);
+        if let Err(e) = socket.write(b"OK") {
+            log::error!("Failed to send data: {e:?}");
+            break;
+        }
+        if let Err(e) = socket.flush() {
+            log::error!("Failed to flush data: {e:?}");
+            break;
         }
 
-        if response == 0 {
+        debug!("Received {} bytes from server", response);
+
+        let limit = EPD_WIDTH as usize * EPD_HEIGHT as usize / 4;
+        let offsetLimit: i32 = limit as i32 - bytes_read as i32 - response as i32;
+        // info!("Bytes remaining to fill left panel: {}", offsetLimit);
+        if left_size && offsetLimit < 0 {
+            println!(
+                "Offset limit exceeded, switching to right panel {offsetLimit}, total bytes read: {bytes_read}, response bytes: {response}"
+            );
+            epd.send_data_bytes(&response_buffer[..(limit - bytes_read)]);
+
+            info!("Left panel image received switching to left panel");
+
+            // epd.turn_on_display();
+
+            epd.set_right_panel();
+            epd.send_data_bytes(&response_buffer[(limit - bytes_read)..response].as_ref());
+            bytes_read += response;
+            left_size = false;
+        } else if left_size && offsetLimit == 0 as i32 {
+            println!("Exact fit for left panel received");
+            epd.send_data_bytes(&response_buffer[..response]);
+            epd.set_right_panel();
+            left_size = false;
+            bytes_read += response;
+        } else {
+            epd.send_data_bytes(&response_buffer[..response]);
+            bytes_read += response;
+        }
+
+        debug!("Total image data received: {} bytes", bytes_read);
+
+        if bytes_read == 960000 {
             break;
         }
     }
+
+    info!("Total image data received: {} bytes", bytes_read);
 
     epd.cs_all(true);
     epd.turn_on_display();
@@ -225,7 +256,7 @@ fn main() -> ! {
     while delay_start.elapsed() < Duration::from_millis(5000) {}
 
     info!("Shutting down e-paper display module");
-    epd.module_exit();
+    // epd.module_exit();
     // Keep the program running
     info!("Entering main loop");
     loop {

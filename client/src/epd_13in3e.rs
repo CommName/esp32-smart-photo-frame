@@ -1,3 +1,5 @@
+use log::info;
+
 use crate::dev_config::DevConfig;
 
 // Display dimensions
@@ -13,30 +15,31 @@ pub enum Color {
     Yellow = 0x2,
     Red = 0x3,
     Blue = 0x5,
-    Green = 0x6,
+    Green = 0x6, // ORANGE
 }
 
-// Command definitions
-const PSR: u8 = 0x00;
-const PWR_EPD: u8 = 0x01;
-const POF: u8 = 0x02;
-const PON: u8 = 0x04;
-const BTST_N: u8 = 0x05;
-const BTST_P: u8 = 0x06;
-const DTM: u8 = 0x10;
-const DRF: u8 = 0x12;
-const CDI: u8 = 0x50;
-const TCON: u8 = 0x60;
-const TRES: u8 = 0x61;
-const AN_TM: u8 = 0x74;
-const AGID: u8 = 0x86;
-const BUCK_BOOST_VDDN: u8 = 0xB0;
-const TFT_VCOM_POWER: u8 = 0xB1;
-const EN_BUF: u8 = 0xB6;
-const BOOST_VDDP_EN: u8 = 0xB7;
-const CCSET: u8 = 0xE0;
-const PWS: u8 = 0xE3;
-const CMD66: u8 = 0xF0;
+pub enum Command {
+    PSR = 0x00,
+    PWR_EPD = 0x01,
+    POF = 0x02,
+    PON = 0x04,
+    BTST_N = 0x05,
+    BTST_P = 0x06,
+    DTM = 0x10,
+    DRF = 0x12,
+    CDI = 0x50,
+    TCON = 0x60,
+    TRES = 0x61,
+    AN_TM = 0x74,
+    AGID = 0x86,
+    BUCK_BOOST_VDDN = 0xB0,
+    TFT_VCOM_POWER = 0xB1,
+    EN_BUF = 0xB6,
+    BOOST_VDDP_EN = 0xB7,
+    CCSET = 0xE0,
+    PWS = 0xE3,
+    CMD66 = 0xF0,
+}
 
 // Register values
 const PSR_V: [u8; 2] = [0xDF, 0x69];
@@ -90,9 +93,9 @@ impl EPD13in3e {
         self.config.delay_ms(30);
     }
 
-    fn send_command(&mut self, cmd: u8) {
+    fn send_command(&mut self, cmd: Command) {
         self.config.dc.set_low();
-        self.config.spi_write_byte(cmd);
+        self.config.spi_write_byte(cmd as u8);
     }
 
     fn send_data(&mut self, data: u8) {
@@ -105,131 +108,115 @@ impl EPD13in3e {
         self.config.spi_write_bytes(data);
     }
 
-    fn spi_send(&mut self, cmd: u8, data: &[u8]) {
+    fn spi_send(&mut self, cmd: Command, data: &[u8]) {
+        self.cs_all(false);
         self.send_command(cmd);
         self.send_data_bytes(data);
-    }
-
-    fn read_busy(&mut self) {
-        while self.config.busy.is_low() {
-            self.config.delay_ms(10);
-        }
-        self.config.delay_ms(20);
+        self.cs_all(true);
     }
 
     pub fn turn_on_display(&mut self) {
-        self.cs_all(false);
-        self.send_command(PON);
         self.cs_all(true);
-        self.read_busy();
+        self.cs_all(false);
+        self.send_command(Command::PON);
+        self.cs_all(true);
+        self.wait_upon_idle_high();
 
         self.config.delay_ms(50);
-        self.cs_all(false);
-        self.spi_send(DRF, &DRF_V);
-        self.cs_all(true);
-        self.read_busy();
+        self.spi_send(Command::DRF, &[0x00]);
+        self.wait_upon_idle_high();
+        self.wait_upon_idle_high();
 
-        self.cs_all(false);
-        self.spi_send(POF, &POF_V);
-        self.cs_all(true);
+        self.spi_send(Command::POF, &[0x00]);
+        self.wait_upon_idle_high();
+
+        // deep sleep
+        self.spi_send(Command::EN_BUF, &[0xA5]);
+    }
+
+    fn wait_upon_idle_high(&mut self) {
+        while self.config.busy.is_low() {
+            self.config.delay_ms(100);
+        }
+        self.config.delay_ms(100);
     }
 
     pub fn init(&mut self) {
         self.reset();
+        info!("EPD Reset complete");
+        self.wait_upon_idle_high();
+        info!("EPD Idle high complete");
+
+        self.spi_send(Command::AN_TM, &AN_TM_V);
+        self.spi_send(Command::CMD66, &CMD66_V);
+        self.spi_send(Command::PSR, &PSR_V);
+        self.spi_send(Command::CDI, &CDI_V);
+        self.spi_send(Command::TCON, &TCON_V);
+        self.spi_send(Command::AGID, &AGID_V);
+        self.spi_send(Command::PWS, &PWS_V);
+        self.spi_send(Command::CCSET, &CCSET_V);
+        self.spi_send(Command::TRES, &TRES_V);
 
         self.config.cs_m.set_low();
-        self.spi_send(AN_TM, &AN_TM_V);
-        self.cs_all(true);
-
-        self.cs_all(false);
-        self.spi_send(CMD66, &CMD66_V);
-        self.cs_all(true);
-
-        self.cs_all(false);
-        self.spi_send(PSR, &PSR_V);
-        self.cs_all(true);
-
-        self.cs_all(false);
-        self.spi_send(CDI, &CDI_V);
-        self.cs_all(true);
-
-        self.cs_all(false);
-        self.spi_send(TCON, &TCON_V);
-        self.cs_all(true);
-
-        self.cs_all(false);
-        self.spi_send(AGID, &AGID_V);
-        self.cs_all(true);
-
-        self.cs_all(false);
-        self.spi_send(PWS, &PWS_V);
-        self.cs_all(true);
-
-        self.cs_all(false);
-        self.spi_send(CCSET, &CCSET_V);
-        self.cs_all(true);
-
-        self.cs_all(false);
-        self.spi_send(TRES, &TRES_V);
+        self.send_command(Command::PWR_EPD);
+        self.send_data_bytes(&PWR_V);
         self.cs_all(true);
 
         self.config.cs_m.set_low();
-        self.spi_send(PWR_EPD, &PWR_V);
+        self.send_command(Command::EN_BUF);
+        self.send_data_bytes(&EN_BUF_V);
         self.cs_all(true);
 
         self.config.cs_m.set_low();
-        self.spi_send(EN_BUF, &EN_BUF_V);
+        self.send_command(Command::BTST_P);
+        self.send_data_bytes(&BTST_P_V);
         self.cs_all(true);
 
         self.config.cs_m.set_low();
-        self.spi_send(BTST_P, &BTST_P_V);
+        self.send_command(Command::BOOST_VDDP_EN);
+        self.send_data_bytes(&BOOST_VDDP_EN_V);
         self.cs_all(true);
 
         self.config.cs_m.set_low();
-        self.spi_send(BOOST_VDDP_EN, &BOOST_VDDP_EN_V);
+        self.send_command(Command::BTST_N);
+        self.send_data_bytes(&BTST_N_V);
         self.cs_all(true);
 
         self.config.cs_m.set_low();
-        self.spi_send(BTST_N, &BTST_N_V);
+        self.send_command(Command::BUCK_BOOST_VDDN);
+        self.send_data_bytes(&BUCK_BOOST_VDDN_V);
         self.cs_all(true);
 
         self.config.cs_m.set_low();
-        self.spi_send(BUCK_BOOST_VDDN, &BUCK_BOOST_VDDN_V);
-        self.cs_all(true);
-
-        self.config.cs_m.set_low();
-        self.spi_send(TFT_VCOM_POWER, &TFT_VCOM_POWER_V);
+        self.send_command(Command::TFT_VCOM_POWER);
+        self.send_data_bytes(&TFT_VCOM_POWER_V);
         self.cs_all(true);
     }
 
     pub fn clear(&mut self, color: Color) {
-        let width = if EPD_WIDTH % 2 == 0 {
-            EPD_WIDTH / 2
-        } else {
-            EPD_WIDTH / 2 + 1
-        };
+        let width = EPD_WIDTH / 4;
 
         let color_byte = (color as u8) << 4 | (color as u8);
         let buf_size = (width / 2) as usize;
 
         // Create buffer on stack to avoid heap allocation in no_std
         let mut buf = [0u8; 300]; // width/2 max size
-        for i in 0..buf_size.min(300) {
-            buf[i] = color_byte;
+        for i in 0..width {
+            buf[i as usize] = color_byte;
         }
 
         self.config.cs_m.set_low();
-        self.send_command(DTM);
+        self.send_command(Command::DTM);
         for _ in 0..EPD_HEIGHT {
-            self.send_data_bytes(&buf[..buf_size.min(300)]);
+            self.send_data_bytes(&buf);
             self.config.delay_ms(1);
         }
         self.cs_all(true);
 
         self.config.cs_s.set_low();
-        self.send_command(DTM);
+        self.send_command(Command::DTM);
         for _ in 0..EPD_HEIGHT {
-            self.send_data_bytes(&buf[..buf_size.min(300)]);
+            self.send_data_bytes(&buf[..buf_size.min(600)]);
             self.config.delay_ms(1);
         }
         self.cs_all(true);
@@ -240,13 +227,13 @@ impl EPD13in3e {
     pub fn set_left_panel(&mut self) {
         self.cs_all(true);
         self.config.cs_m.set_low();
-        self.send_command(DTM);
+        self.send_command(Command::DTM);
     }
 
     pub fn set_right_panel(&mut self) {
         self.cs_all(true);
         self.config.cs_s.set_low();
-        self.send_command(DTM);
+        self.send_command(Command::DTM);
     }
 
     pub fn display(&mut self, image: &[u8]) {
@@ -262,7 +249,7 @@ impl EPD13in3e {
         } as usize;
 
         self.config.cs_m.set_low();
-        self.send_command(DTM);
+        self.send_command(Command::DTM);
         for i in 0..EPD_HEIGHT as usize {
             let start = i * width as usize;
             let end = start + width1;
@@ -274,7 +261,7 @@ impl EPD13in3e {
         self.cs_all(true);
 
         self.config.cs_s.set_low();
-        self.send_command(DTM);
+        self.send_command(Command::DTM);
         for i in 0..EPD_HEIGHT as usize {
             let start = i * width as usize + width1;
             let end = start + width1;
@@ -288,70 +275,9 @@ impl EPD13in3e {
         self.turn_on_display();
     }
 
-    pub fn display_part(
-        &mut self,
-        image: &[u8],
-        xstart: u16,
-        ystart: u16,
-        img_width: u16,
-        img_height: u16,
-    ) {
-        let _width = if EPD_WIDTH % 2 == 0 {
-            EPD_WIDTH / 2
-        } else {
-            EPD_WIDTH / 2 + 1
-        };
-        let _width1 = if _width % 2 == 0 {
-            _width / 2
-        } else {
-            _width / 2 + 1
-        } as usize;
-
-        let _xend = if (xstart + img_width) % 2 == 0 {
-            (xstart + img_width) / 2 - 1
-        } else {
-            (xstart + img_width) / 2
-        };
-        let _yend = ystart + img_height - 1;
-        let xstart = xstart / 2;
-
-        // Select the appropriate chip based on X coordinate
-        if xstart > 300 {
-            // Right panel (CS_S)
-            self.config.cs_s.set_low();
-            self.send_command(DTM);
-
-            for i in 0..img_height as usize {
-                let start = i * (img_width / 2) as usize;
-                let end = start + (img_width / 2) as usize;
-                if end <= image.len() {
-                    self.send_data_bytes(&image[start..end]);
-                }
-                self.config.delay_ms(1);
-            }
-            self.cs_all(true);
-        } else {
-            // Left panel (CS_M)
-            self.config.cs_m.set_low();
-            self.send_command(DTM);
-
-            for i in 0..img_height as usize {
-                let start = i * (img_width / 2) as usize;
-                let end = start + (img_width / 2) as usize;
-                if end <= image.len() {
-                    self.send_data_bytes(&image[start..end]);
-                }
-                self.config.delay_ms(1);
-            }
-            self.cs_all(true);
-        }
-
-        self.turn_on_display();
-    }
-
     pub fn sleep(&mut self) {
         self.cs_all(false);
-        self.send_command(POF);
+        self.send_command(Command::POF);
         self.send_data(0x00);
         self.cs_all(true);
         self.config.delay_ms(2000);
