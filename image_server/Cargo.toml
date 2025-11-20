@@ -1,0 +1,10 @@
+[package]
+name = "image_server"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+image = "0.25.8"
+poem = "3.1.12"
+poem-openapi = "5.1.16"
+tokio = { version = "1.48.0", features = ["full"] }
