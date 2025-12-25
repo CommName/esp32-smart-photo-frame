@@ -18,6 +18,7 @@ pub enum Color {
     Green = 0x6, // ORANGE
 }
 
+#[allow(non_camel_case_types)]
 pub enum Command {
     PSR = 0x00,
     PWR_EPD = 0x01,
@@ -44,8 +45,6 @@ pub enum Command {
 // Register values
 const PSR_V: [u8; 2] = [0xDF, 0x69];
 const PWR_V: [u8; 6] = [0x0F, 0x00, 0x28, 0x2C, 0x28, 0x38];
-const POF_V: [u8; 1] = [0x00];
-const DRF_V: [u8; 1] = [0x00];
 const CDI_V: [u8; 1] = [0xF7];
 const TCON_V: [u8; 2] = [0x03, 0x03];
 const TRES_V: [u8; 4] = [0x04, 0xB0, 0x03, 0x20];
@@ -193,37 +192,6 @@ impl EPD13in3e {
         self.cs_all(true);
     }
 
-    pub fn clear(&mut self, color: Color) {
-        let width = EPD_WIDTH / 4;
-
-        let color_byte = (color as u8) << 4 | (color as u8);
-        let buf_size = (width / 2) as usize;
-
-        // Create buffer on stack to avoid heap allocation in no_std
-        let mut buf = [0u8; 300]; // width/2 max size
-        for i in 0..width {
-            buf[i as usize] = color_byte;
-        }
-
-        self.config.cs_m.set_low();
-        self.send_command(Command::DTM);
-        for _ in 0..EPD_HEIGHT {
-            self.send_data_bytes(&buf);
-            self.config.delay_ms(1);
-        }
-        self.cs_all(true);
-
-        self.config.cs_s.set_low();
-        self.send_command(Command::DTM);
-        for _ in 0..EPD_HEIGHT {
-            self.send_data_bytes(&buf[..buf_size.min(600)]);
-            self.config.delay_ms(1);
-        }
-        self.cs_all(true);
-
-        self.turn_on_display();
-    }
-
     pub fn set_left_panel(&mut self) {
         self.cs_all(true);
         self.config.cs_m.set_low();
@@ -234,45 +202,6 @@ impl EPD13in3e {
         self.cs_all(true);
         self.config.cs_s.set_low();
         self.send_command(Command::DTM);
-    }
-
-    pub fn display(&mut self, image: &[u8]) {
-        let width = if EPD_WIDTH % 2 == 0 {
-            EPD_WIDTH / 2
-        } else {
-            EPD_WIDTH / 2 + 1
-        };
-        let width1 = if width % 2 == 0 {
-            width / 2
-        } else {
-            width / 2 + 1
-        } as usize;
-
-        self.config.cs_m.set_low();
-        self.send_command(Command::DTM);
-        for i in 0..EPD_HEIGHT as usize {
-            let start = i * width as usize;
-            let end = start + width1;
-            if end <= image.len() {
-                self.send_data_bytes(&image[start..end]);
-            }
-            self.config.delay_ms(1);
-        }
-        self.cs_all(true);
-
-        self.config.cs_s.set_low();
-        self.send_command(Command::DTM);
-        for i in 0..EPD_HEIGHT as usize {
-            let start = i * width as usize + width1;
-            let end = start + width1;
-            if end <= image.len() {
-                self.send_data_bytes(&image[start..end]);
-            }
-            self.config.delay_ms(1);
-        }
-        self.cs_all(true);
-
-        self.turn_on_display();
     }
 
     pub fn sleep(&mut self) {
