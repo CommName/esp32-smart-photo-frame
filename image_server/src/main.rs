@@ -17,6 +17,7 @@ use tokio::{
 };
 
 mod image_processing;
+mod immich;
 
 struct Api;
 
@@ -169,15 +170,15 @@ async fn esp_server(app_data: std::sync::Arc<AppData>) {
             let white_data = vec![0xFFu8; right.len()];
 
             println!("Sending left data [{} bytes]", left.len());
-            send_data_through_socket(&mut socket, &&left[..left.len() / 2], &mut data_sent).await;
-            send_data_through_socket(&mut socket, &white_data[..left.len() / 2], &mut data_sent)
-                .await;
+            send_data_through_socket(&mut socket, &left, &mut data_sent).await;
+            // send_data_through_socket(&mut socket, &white_data[..left.len() / 2], &mut data_sent)
+            // .await;
 
             // let right_data = &right[..right.len() / 4];
             println!("Sending right data [{} bytes]", right.len());
-            send_data_through_socket(&mut socket, &right[..right.len() / 2], &mut data_sent).await;
-            send_data_through_socket(&mut socket, &white_data[..right.len() / 2], &mut data_sent)
-                .await;
+            send_data_through_socket(&mut socket, &right, &mut data_sent).await;
+            // send_data_through_socket(&mut socket, &white_data[..right.len() / 2], &mut data_sent)
+            // .await;
 
             // send_data_through_socket(&mut socket, &right[..right.len() / 4], &mut data_sent).await;
 
@@ -189,6 +190,25 @@ async fn esp_server(app_data: std::sync::Arc<AppData>) {
 
 #[tokio::main]
 async fn main() {
+    dotenvy::dotenv().ok();
+
+    let immich_token =
+        std::env::var("IMMICH_TOKEN").expect("IMMICH_TOKEN must be set in .env file");
+    let immich_url = std::env::var("IMMICH_URL").expect("IMMICH_URL must be set in .env file");
+    let immich_album_id =
+        std::env::var("IMMICH_ALBUM_ID").expect("IMMICH_ALBUM_ID must be set in .env file");
+
+    let immich_api = immich::ImmichApi::new(immich_token, immich_url, immich_album_id);
+
+    let album_data = immich_api
+        .get_album_with_assets(&uuid::Uuid::parse_str(&immich_api.album_id).unwrap())
+        .await;
+
+    println!(
+        "Albuum {}",
+        serde_json::to_string_pretty(&album_data).unwrap()
+    );
+
     let app_data = std::sync::Arc::new(AppData::default());
     let app_data_clone = app_data.clone();
     tokio::spawn(async move {
