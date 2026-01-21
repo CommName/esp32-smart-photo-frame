@@ -33,10 +33,14 @@ pub enum AssetType {
 
 impl ImmichApi {
     pub fn new(token: String, url: String, album_id: String) -> Self {
+        let client = reqwest::ClientBuilder::new()
+            .danger_accept_invalid_certs(true)
+            .build()
+            .unwrap();
         ImmichApi {
             token,
             url,
-            client: reqwest::Client::new(),
+            client,
             album_id,
         }
     }

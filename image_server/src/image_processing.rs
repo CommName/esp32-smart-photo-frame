@@ -1,4 +1,4 @@
-use image::{ImageBuffer, Rgb, RgbImage};
+use image::{ImageBuffer, Rgb};
 
 pub fn dither_with_palette(img: &mut ImageBuffer<Rgb<u8>, Vec<u8>>, palette: &[Rgb<u8>]) {
     let (width, height) = img.dimensions();
@@ -112,6 +112,7 @@ pub fn split_into_left_right(data: &[u8], width: usize, height: usize) -> (Vec<u
     (left, right)
 }
 
+#[allow(dead_code)]
 pub fn add_white_padding_around_edges(img: &mut ImageBuffer<Rgb<u8>, Vec<u8>>) {
     let (width, height) = img.dimensions();
     const PADDING: u32 = 50;
