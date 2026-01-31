@@ -6,22 +6,17 @@
     holding buffers for the duration of a data transfer."
 )]
 
-use core::net::Ipv4Addr;
-
-use esp_hal::rtc_cntl::Rtc;
-use log::info;
-
+use blocking_network_stack::Stack;
 use esp_hal::clock::CpuClock;
-use esp_hal::gpio::{Input, InputConfig, Level, Output, OutputConfig, Pull};
 use esp_hal::main;
+use esp_hal::time::{Duration, Instant};
 use esp_hal::timer::timg::TimerGroup;
-use esp_println::println;
-use smart_picture_frame::dev_config::DevConfig;
-use smart_picture_frame::run;
-use smoltcp::wire::IpAddress;
+use log::info;
+use smoltcp::iface::{SocketSet, SocketStorage};
+use smoltcp::wire::DhcpOption;
+
 #[panic_handler]
-fn panic(info: &core::panic::PanicInfo) -> ! {
-    println!("PANIC: {}", info);
+fn panic(_: &core::panic::PanicInfo) -> ! {
     loop {}
 }
 
@@ -31,67 +26,71 @@ extern crate alloc;
 // For more information see: <https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/system/app_image_format.html#application-description>
 esp_bootloader_esp_idf::esp_app_desc!();
 
-const SSID: &str = "CommName";
-const PASSWORD: &str = "password";
-
 #[main]
 fn main() -> ! {
-    // Initialize println and logging support
+    // generator version: 1.0.0
+
     esp_println::logger::init_logger(log::LevelFilter::Info);
 
-    // Both println! and log macros are now available
-    println!("=== ESP32 Smart Photo Frame Starting ===");
-    info!("Starting ESP32 Smart Photo Frame");
-    let config = esp_hal::Config::default().with_cpu_clock(CpuClock::_80MHz);
-    info!("Initializing ESP32 HAL with 80 MHz CPU clock");
+    let config = esp_hal::Config::default().with_cpu_clock(CpuClock::max());
     let peripherals = esp_hal::init(config);
-    info!("ESP32 HAL initialized successfully");
 
     esp_alloc::heap_allocator!(#[unsafe(link_section = ".dram2_uninit")] size: 98767);
-    info!("Heap allocator initialized with 98767 bytes");
 
     let timg0 = TimerGroup::new(peripherals.TIMG0);
-    info!("Timer group created");
-    esp_rtos::start(timg0.timer0);
-    info!("ESP-RTOS started");
+    let mut rng = esp_hal::rng::Rng::new();
 
-    info!("Initializing Wi-Fi/BLE radio controller");
+    esp_rtos::start(timg0.timer0);
     let radio_init = esp_radio::init().expect("Failed to initialize Wi-Fi/BLE controller");
-    info!("Radio controller initialized successfully");
-    info!("Creating Wi-Fi controller and interfaces");
-    let (wifi_controller, interfaces) =
+    let (mut wifi_controller, interfaces) =
         esp_radio::wifi::new(&radio_init, peripherals.WIFI, Default::default())
             .expect("Failed to initialize Wi-Fi controller");
-    info!("Wi-Fi controller created successfully");
 
-    // Initialize device configuration with GPIO pins
-    info!("Initializing device configuration with GPIO pins");
-    let dev_config = DevConfig::new(
-        Output::new(peripherals.GPIO13, Level::Low, OutputConfig::default()), // SCK
-        Output::new(peripherals.GPIO14, Level::Low, OutputConfig::default()), // MOSI
-        Output::new(peripherals.GPIO15, Level::High, OutputConfig::default()), // CS_M
-        Output::new(peripherals.GPIO2, Level::High, OutputConfig::default()), // CS_S
-        Output::new(peripherals.GPIO26, Level::Low, OutputConfig::default()), // RST
-        Output::new(peripherals.GPIO27, Level::Low, OutputConfig::default()), // DC
-        Input::new(
-            peripherals.GPIO25,
-            InputConfig::default().with_pull(Pull::Down),
-        ), // BUSY
-        Output::new(peripherals.GPIO33, Level::High, OutputConfig::default()), // PWR
+    let mut device = interfaces.sta;
+    let mut socket_set_entries: [SocketStorage; 3] = Default::default();
+    let mut socket_set = SocketSet::new(&mut socket_set_entries[..]);
+    let mut dhcp_socket = smoltcp::socket::dhcpv4::Socket::new();
+    // we can set a hostname here (or add other DHCP options)
+    dhcp_socket.set_outgoing_options(&[DhcpOption {
+        kind: 12,
+        data: b"implRust",
+    }]);
+    socket_set.add(dhcp_socket);
+
+    let now = || Instant::now().duration_since_epoch().as_millis();
+    let mut stack = Stack::new(
+        client::network::create_interface(&mut device),
+        device,
+        socket_set,
+        now,
+        rng.random(),
     );
-    info!("Device configuration initialized with GPIO pins");
-    // Start the main application logic
 
-    let mut rtc = Rtc::new(peripherals.LPWR);
+    info!("Connecting to Wi-Fi...");
 
-    run(
-        dev_config,
-        wifi_controller,
-        interfaces,
-        SSID,
-        IpAddress::Ipv4(Ipv4Addr::new(192, 168, 8, 4)),
-        3000,
-        PASSWORD,
-        &mut rtc,
+    client::network::connect_to_wifi(
+        &mut wifi_controller,
+        client::network::NetworkConfig {
+            ssid: "SSID",
+            password: "pasword",
+        },
     )
+    .expect("Failed to connect to Wi-Fi");
+
+    info!("Acquiring IP address via DHCP...");
+    loop {
+        stack.work();
+        if stack.is_iface_up() {
+            log::info!("IP acquired: {:?}", stack.get_ip_info());
+            break;
+        }
+    }
+
+    loop {
+        info!("Hello world!");
+        let delay_start = Instant::now();
+        while delay_start.elapsed() < Duration::from_millis(500) {}
+    }
+
+    // for inspiration have a look at the examples at https://github.com/esp-rs/esp-hal/tree/esp-hal-v1.0.0/examples/src/bin
 }
