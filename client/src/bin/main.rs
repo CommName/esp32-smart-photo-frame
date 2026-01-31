@@ -71,8 +71,8 @@ fn main() -> ! {
     client::network::connect_to_wifi(
         &mut wifi_controller,
         client::network::NetworkConfig {
-            ssid: "SSID",
-            password: "pasword",
+            ssid: env!("WIFI_SSID"),
+            password: env!("WIFI_PASSWORD"),
         },
     )
     .expect("Failed to connect to Wi-Fi");

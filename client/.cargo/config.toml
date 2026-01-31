@@ -3,6 +3,8 @@ runner = "espflash flash --monitor --chip esp32"
 
 [env]
 ESP_LOG="info"
+WIFI_SSID="your-ssid"
+WIFI_PASSWORD="your-password"
 
 [build]
 rustflags = [
