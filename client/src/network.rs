@@ -1,4 +1,4 @@
-use esp_radio::wifi::{self, ClientConfig, Interfaces, WifiController};
+use esp_radio::wifi::{self, ClientConfig, WifiController};
 
 pub struct NetworkConfig {
     pub ssid: &'static str,

@@ -7,7 +7,10 @@
 )]
 
 use blocking_network_stack::Stack;
+use client::dev_config::DevConfig;
+use client::epd13in3::Color;
 use esp_hal::clock::CpuClock;
+use esp_hal::gpio::{Input, InputConfig, Level, Output, OutputConfig, Pull};
 use esp_hal::main;
 use esp_hal::time::{Duration, Instant};
 use esp_hal::timer::timg::TimerGroup;
@@ -85,6 +88,24 @@ fn main() -> ! {
             break;
         }
     }
+
+    let dev_config = DevConfig::new(
+        Output::new(peripherals.GPIO13, Level::Low, OutputConfig::default()), // SCK
+        Output::new(peripherals.GPIO14, Level::Low, OutputConfig::default()), // MOSI
+        Output::new(peripherals.GPIO15, Level::High, OutputConfig::default()), // CS_M
+        Output::new(peripherals.GPIO2, Level::High, OutputConfig::default()), // CS_S
+        Output::new(peripherals.GPIO26, Level::Low, OutputConfig::default()), // RST
+        Output::new(peripherals.GPIO27, Level::Low, OutputConfig::default()), // DC
+        Input::new(
+            peripherals.GPIO25,
+            InputConfig::default().with_pull(Pull::Down),
+        ), // BUSY
+        Output::new(peripherals.GPIO33, Level::High, OutputConfig::default()), // PWR
+    );
+    log::info!("Clearing the e-paper display...");
+    let mut epd = client::epd13in3::EPD13in3e::new(dev_config);
+    epd.init();
+    epd.clear(Color::White);
 
     loop {
         info!("Hello world!");
