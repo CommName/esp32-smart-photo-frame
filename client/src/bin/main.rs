@@ -41,53 +41,15 @@ fn main() -> ! {
     esp_alloc::heap_allocator!(#[unsafe(link_section = ".dram2_uninit")] size: 98767);
 
     let timg0 = TimerGroup::new(peripherals.TIMG0);
-    let mut rng = esp_hal::rng::Rng::new();
-
-    esp_rtos::start(timg0.timer0);
     let radio_init = esp_radio::init().expect("Failed to initialize Wi-Fi/BLE controller");
-    let (mut wifi_controller, interfaces) =
-        esp_radio::wifi::new(&radio_init, peripherals.WIFI, Default::default())
-            .expect("Failed to initialize Wi-Fi controller");
 
-    let mut device = interfaces.sta;
     let mut socket_set_entries: [SocketStorage; 3] = Default::default();
-    let mut socket_set = SocketSet::new(&mut socket_set_entries[..]);
-    let mut dhcp_socket = smoltcp::socket::dhcpv4::Socket::new();
-    // we can set a hostname here (or add other DHCP options)
-    dhcp_socket.set_outgoing_options(&[DhcpOption {
-        kind: 12,
-        data: b"implRust",
-    }]);
-    socket_set.add(dhcp_socket);
-
-    let now = || Instant::now().duration_since_epoch().as_millis();
-    let mut stack = Stack::new(
-        client::network::create_interface(&mut device),
-        device,
-        socket_set,
-        now,
-        rng.random(),
+    let mut stack = client::network::create_stack(
+        timg0.timer0,
+        peripherals.WIFI,
+        &mut socket_set_entries,
+        &radio_init,
     );
-
-    info!("Connecting to Wi-Fi...");
-
-    client::network::connect_to_wifi(
-        &mut wifi_controller,
-        client::network::NetworkConfig {
-            ssid: env!("WIFI_SSID"),
-            password: env!("WIFI_PASSWORD"),
-        },
-    )
-    .expect("Failed to connect to Wi-Fi");
-
-    info!("Acquiring IP address via DHCP...");
-    loop {
-        stack.work();
-        if stack.is_iface_up() {
-            log::info!("IP acquired: {:?}", stack.get_ip_info());
-            break;
-        }
-    }
 
     let dev_config = DevConfig::new(
         Output::new(peripherals.GPIO13, Level::Low, OutputConfig::default()), // SCK
