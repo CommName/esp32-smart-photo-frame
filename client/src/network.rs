@@ -1,10 +1,8 @@
 use blocking_network_stack::Stack;
 use esp_hal::time::Instant;
 use esp_radio::wifi::{self, ClientConfig, WifiController};
-use esp_rtos::TimerSource;
 use smoltcp::{
     iface::{SocketSet, SocketStorage},
-    socket::dhcpv4::Socket,
     wire::DhcpOption,
 };
 
@@ -14,14 +12,12 @@ pub struct NetworkConfig {
 }
 
 pub fn create_stack<'a>(
-    timer0: impl TimerSource,
     wifi: esp_hal::peripherals::WIFI<'a>,
     socket_set_entries: &'a mut [SocketStorage<'a>; 3],
     radio_init: &'a esp_radio::Controller<'a>,
 ) -> Stack<'a, wifi::WifiDevice<'a>> {
     let rng = esp_hal::rng::Rng::new();
 
-    esp_rtos::start(timer0);
     let (mut wifi_controller, interfaces) =
         esp_radio::wifi::new(&radio_init, wifi, Default::default())
             .expect("Failed to initialize Wi-Fi controller");

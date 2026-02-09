@@ -1,8 +1,8 @@
 use crate::dev_config::DevConfig;
 
 // Display dimensions
-pub const EPD_WIDTH: u16 = 1200;
-pub const EPD_HEIGHT: u16 = 1600;
+pub const EPD_WIDTH: usize = 1200;
+pub const EPD_HEIGHT: usize = 1600;
 
 // Color definitions
 #[derive(Copy, Clone, Debug)]
@@ -101,7 +101,7 @@ impl EPD13in3e {
         self.config.spi_write_byte(data);
     }
 
-    fn send_data_bytes(&mut self, data: &[u8]) {
+    pub fn send_data_bytes(&mut self, data: &[u8]) {
         //self.config.dc.set_high();
         self.config.spi_write_bytes(data);
     }
@@ -203,212 +203,20 @@ impl EPD13in3e {
         self.cs_all(true);
     }
 
-    pub fn clear(&mut self, color: Color) {
-        let width = if EPD_WIDTH % 2 == 0 {
-            EPD_WIDTH / 2
-        } else {
-            EPD_WIDTH / 2 + 1
-        };
-
-        let color_byte = (color as u8) << 4 | (color as u8);
-        let _buf_size = (width / 2) as usize;
-
-        // Create buffer on stack to avoid heap allocation in no_std
-        let mut buf = [0u8; 600]; // width/2 max size
-        for i in 0..600 {
-            buf[i] = color_byte;
-        }
-
-        self.config.cs_m.set_low();
-        self.send_command(DTM);
-        for _ in 0..EPD_HEIGHT {
-            self.send_data_bytes(&buf);
-            self.config.delay_ms(1);
-        }
-        self.cs_all(true);
-
-        self.config.cs_s.set_low();
-        self.send_command(DTM);
-        for _ in 0..EPD_HEIGHT {
-            self.send_data_bytes(&buf);
-            self.config.delay_ms(1);
-        }
-        self.cs_all(true);
-
-        self.turn_on_display();
+    pub fn send_byte(&mut self, data: u8) {
+        self.send_data(data);
     }
 
-    pub fn display(&mut self, image: &[u8]) {
-        let width = if EPD_WIDTH % 2 == 0 {
-            EPD_WIDTH / 2
-        } else {
-            EPD_WIDTH / 2 + 1
-        };
-        let width1 = if width % 2 == 0 {
-            width / 2
-        } else {
-            width / 2 + 1
-        } as usize;
-
+    pub fn select_left_panel(&mut self) {
         self.config.cs_m.set_low();
+        self.config.cs_s.set_high();
         self.send_command(DTM);
-        for i in 0..EPD_HEIGHT as usize {
-            let start = i * width as usize;
-            let end = start + width1;
-            if end <= image.len() {
-                self.send_data_bytes(&image[start..end]);
-            }
-            self.config.delay_ms(1);
-        }
-        self.cs_all(true);
-
-        self.config.cs_s.set_low();
-        self.send_command(DTM);
-        for i in 0..EPD_HEIGHT as usize {
-            let start = i * width as usize + width1;
-            let end = start + width1;
-            if end <= image.len() {
-                self.send_data_bytes(&image[start..end]);
-            }
-            self.config.delay_ms(1);
-        }
-        self.cs_all(true);
-
-        self.turn_on_display();
     }
 
-    pub fn display_part(
-        &mut self,
-        image: &[u8],
-        mut xstart: u16,
-        ystart: u16,
-        img_width: u16,
-        img_height: u16,
-    ) {
-        let width = 600;
-        let width1 = 300;
-        let height = 1600;
-
-        let mut xend = if (xstart + img_width) % 2 == 0 {
-            (xstart + img_width) / 2
-        } else {
-            (xstart + img_width) / 2 + 1
-        };
-        let yend = ystart + img_height;
-        xstart = xstart / 2;
-
-        // Three cases: right panel only, left panel only, or spanning both panels
-        if xstart > 300 {
-            // Image is entirely on the right panel (CS_S)
-            xend = xend - 300;
-            xstart = xstart - 300;
-
-            // Left panel (CS_M) - fill with white
-            self.config.cs_m.set_low();
-            self.send_command(DTM);
-            for _ in 0..height {
-                for _ in 0..width1 {
-                    self.send_data(0x11);
-                }
-                self.config.delay_ms(1);
-            }
-            self.cs_all(true);
-
-            // Right panel (CS_S) - display the image
-            self.config.cs_s.set_low();
-            self.send_command(DTM);
-            for i in 0..height {
-                for j in 0..width1 {
-                    if i < yend && i >= ystart && j < xend && j >= xstart {
-                        let img_idx = ((j - xstart) + (img_width / 2 * (i - ystart))) as usize;
-                        if img_idx < image.len() {
-                            self.send_data(image[img_idx]);
-                        } else {
-                            self.send_data(0x11);
-                        }
-                    } else {
-                        self.send_data(0x11);
-                    }
-                }
-                self.config.delay_ms(1);
-            }
-            self.cs_all(true);
-        } else if xend < 300 {
-            // Image is entirely on the left panel (CS_M)
-            self.config.cs_m.set_low();
-            self.send_command(DTM);
-            for i in 0..height {
-                for j in 0..width1 {
-                    if i < yend && i >= ystart && j < xend && j >= xstart {
-                        let img_idx = ((j - xstart) + (img_width / 2 * (i - ystart))) as usize;
-                        if img_idx < image.len() {
-                            self.send_data(image[img_idx]);
-                        } else {
-                            self.send_data(0x11);
-                        }
-                    } else {
-                        self.send_data(0x11);
-                    }
-                }
-                self.config.delay_ms(1);
-            }
-            self.cs_all(true);
-
-            // Right panel (CS_S) - fill with white
-            self.config.cs_s.set_low();
-            self.send_command(DTM);
-            for _ in 0..height {
-                for _ in 0..width1 {
-                    self.send_data(0x11);
-                }
-                self.config.delay_ms(1);
-            }
-            self.cs_all(true);
-        } else {
-            // Image spans both panels
-            // Left panel (CS_M)
-            self.config.cs_m.set_low();
-            self.send_command(DTM);
-            for i in 0..height {
-                for j in 0..width1 {
-                    if i < yend && i >= ystart && j >= xstart {
-                        let img_idx = ((j - xstart) + (img_width / 2 * (i - ystart))) as usize;
-                        if img_idx < image.len() {
-                            self.send_data(image[img_idx]);
-                        } else {
-                            self.send_data(0x11);
-                        }
-                    } else {
-                        self.send_data(0x11);
-                    }
-                }
-                self.config.delay_ms(1);
-            }
-            self.cs_all(true);
-
-            // Right panel (CS_S)
-            self.config.cs_s.set_low();
-            self.send_command(DTM);
-            for i in 0..height {
-                for j in 0..width1 {
-                    if i < yend && i >= ystart && j < (xend - 300) {
-                        let img_idx =
-                            ((j + 300 - xstart) + (img_width / 2 * (i - ystart))) as usize;
-                        if img_idx < image.len() {
-                            self.send_data(image[img_idx]);
-                        } else {
-                            self.send_data(0x11);
-                        }
-                    } else {
-                        self.send_data(0x11);
-                    }
-                }
-                self.config.delay_ms(1);
-            }
-            self.cs_all(true);
-        }
-
-        self.turn_on_display();
+    pub fn select_right_panel(&mut self) {
+        self.config.cs_m.set_high();
+        self.config.cs_s.set_low();
+        self.send_command(DTM);
     }
 
     pub fn sleep(&mut self) {
