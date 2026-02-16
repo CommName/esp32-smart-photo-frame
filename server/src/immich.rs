@@ -1,4 +1,4 @@
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Result, anyhow};
 use futures::TryFutureExt;
 use reqwest::ClientBuilder;
 use serde::Deserialize;
@@ -12,6 +12,7 @@ pub struct Immich {
 
 #[derive(Deserialize)]
 struct Album {
+    #[allow(dead_code)]
     id: String,
     assets: Vec<Asset>,
 }
@@ -52,10 +53,10 @@ impl Immich {
 
         let mut join_set = JoinSet::new();
 
-        for asset in album.assets {
+        for asset in &album.assets {
             join_set.spawn(Self::get_photo(
                 self.server_url.clone(),
-                asset.id,
+                asset.id.clone(),
                 self.api_key.clone(),
             ));
         }

@@ -1,4 +1,4 @@
-use image::{ImageBuffer, Rgb, Rgba, imageops::ColorMap};
+use image::{ImageBuffer, Rgb, imageops::ColorMap};
 
 pub fn process_image(image: Vec<u8>) -> Result<ImageBuffer<Rgb<u8>, Vec<u8>>, image::ImageError> {
     let mut img = image::load_from_memory(&image)?;

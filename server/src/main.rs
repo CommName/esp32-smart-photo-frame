@@ -1,4 +1,4 @@
-use std::{cmp::min, str::FromStr};
+use std::{cmp::min, str::FromStr, sync::Arc};
 
 use anyhow::Result;
 use tokio::{
@@ -7,44 +7,47 @@ use tokio::{
 };
 use uuid::Uuid;
 
-use crate::{image_ops::process_image, immich::Immich};
+use crate::{
+    app_data::{AppData, ProccessedImage},
+    image_ops::process_image,
+    immich::Immich,
+};
 
+mod app_data;
 mod image_ops;
 mod immich;
 
 pub async fn send_buffer(socket: &mut TcpStream, buffer: &[u8]) -> tokio::io::Result<()> {
-    let mut bytes_sent = 0;
-    let mut read_buff = [0u8; 1024];
-    let total_bytes = buffer.len();
+    let mut _read_buff = [0u8; 1024];
 
-    while bytes_sent < total_bytes {
-        let bytes_to_send = min(1024, total_bytes - bytes_sent);
-
-        let n = socket
-            .write(&buffer[bytes_sent..(bytes_sent + bytes_to_send)])
-            .await?;
-        bytes_sent += n;
+    for chunk in buffer.chunks(500) {
+        socket.write_all(chunk).await?;
 
         socket.flush().await?;
-        socket.read(&mut read_buff).await?;
+        let n = socket.read(&mut _read_buff).await?;
+        if n != 2 {}
     }
     Ok(())
 }
 
-pub async fn send_photo(mut socket: tokio::net::TcpStream) {
-    let panel = [0x00u8; 1200 * 1600 / 4];
-
-    send_buffer(&mut socket, &panel).await.unwrap();
-    send_buffer(&mut socket, &panel).await.unwrap();
+pub async fn send_photo(mut socket: tokio::net::TcpStream, photo: ProccessedImage) {
+    // let panel = [0x00u8; 1200 * 1600 / 4];
+    println!("Left panel size: {} bytes", photo.left.len());
+    send_buffer(&mut socket, &photo.left).await.unwrap();
+    println!("Right panel size: {} bytes", photo.right.len());
+    send_buffer(&mut socket, &photo.right).await.unwrap();
 }
 
-pub async fn esp_server() {
+pub async fn esp_server(app_data: Arc<AppData>) {
+    println!("Starting server on port 2025...");
     let listener = tokio::net::TcpListener::bind("0.0.0.0:2025").await.unwrap();
 
     loop {
         let (socket, _) = listener.accept().await.unwrap();
+        println!("Client connected: {:?}", socket.peer_addr());
+        let photo = app_data.get_random_image();
         tokio::spawn(async move {
-            send_photo(socket).await;
+            send_photo(socket, photo).await;
         });
     }
 }
@@ -59,12 +62,22 @@ async fn main() -> Result<()> {
 
     let image_api = Immich::new(IMMICH_SERVER.to_string(), IMMICH_TOKEN.to_string());
 
-    let images = image_api.get_photos(immich_album).await?;
-    for (index, image) in images.into_iter().enumerate() {
-        let image = process_image(image)?;
-        image.save(format!("./images/{index}.jpg"))?;
-    }
-    esp_server().await;
+    println!("Fetching photos from Immich...");
+    let images = image_api
+        .get_photos(immich_album)
+        .await?
+        .into_iter()
+        .enumerate()
+        .map(|(index, bytes)| {
+            let image = process_image(bytes).unwrap();
+            ProccessedImage::from(image)
+        })
+        .collect();
+
+    println!("Initialization complete, starting server...");
+    let app_data = Arc::new(AppData::default());
+    app_data.set_images(images);
+    esp_server(Arc::clone(&app_data)).await;
 
     Ok(())
 }
