@@ -1,3 +1,5 @@
+use esp_println::println;
+
 use crate::dev_config::DevConfig;
 
 // Display dimensions
@@ -119,6 +121,7 @@ impl EPD13in3e {
     }
 
     pub fn turn_on_display(&mut self) {
+        self.cs_all(true);
         self.cs_all(false);
         self.send_command(PON);
         self.cs_all(true);
@@ -208,12 +211,16 @@ impl EPD13in3e {
     }
 
     pub fn select_left_panel(&mut self) {
+        println!("Selecting left panel...");
+        self.cs_all(true);
         self.config.cs_m.set_low();
         self.config.cs_s.set_high();
         self.send_command(DTM);
     }
 
     pub fn select_right_panel(&mut self) {
+        println!("Selecting right panel...");
+        self.cs_all(true);
         self.config.cs_m.set_high();
         self.config.cs_s.set_low();
         self.send_command(DTM);

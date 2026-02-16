@@ -145,10 +145,10 @@ fn main() -> ! {
         log::info!("Socket connected to server.");
 
         epd.init();
-        epd.select_left_panel();
 
         let mut buffer_read = 0;
-        let mut buff_reader = [0u8; 4096];
+        let mut buff_reader = [0u8; 1024];
+        epd.select_left_panel();
         loop {
             match socket.read(&mut buff_reader) {
                 Ok(0) => {
@@ -187,6 +187,7 @@ fn main() -> ! {
                     break;
                 }
             }
+
             if let Err(e) = socket.write(response) {
                 log::error!("Socket write error: {:?}", e);
                 break;
@@ -199,9 +200,7 @@ fn main() -> ! {
         log::info!("Finished reading from socket. Total bytes read: {buffer_read}");
         epd.turn_on_display();
 
-        info!("Hello world!");
         let delay_start = Instant::now();
-
         socket.close();
         while delay_start.elapsed() < Duration::from_minutes(5) {}
     }
