@@ -9,6 +9,7 @@
 use core::net::Ipv4Addr;
 use core::str::FromStr;
 
+use blocking_network_stack::Stack;
 use client::dev_config::DevConfig;
 use client::epd13in3;
 use embedded_io::{Read, Write};
@@ -17,13 +18,19 @@ use esp_hal::gpio::{Input, InputConfig, Level, Output, OutputConfig, Pull};
 use esp_hal::main;
 use esp_hal::time::{Duration, Instant};
 use esp_hal::timer::timg::TimerGroup;
+use esp_radio::wifi::{self, ClientConfig, WifiController};
 use log::info;
-use smoltcp::iface::SocketStorage;
+use smoltcp::{
+    iface::{SocketSet, SocketStorage},
+    wire::DhcpOption,
+};
 
 #[panic_handler]
 fn panic(_: &core::panic::PanicInfo) -> ! {
     loop {}
 }
+
+use client::network::*;
 
 extern crate alloc;
 
@@ -48,8 +55,50 @@ fn main() -> ! {
     let radio_init = esp_radio::init().expect("Failed to initialize Wi-Fi/BLE controller");
 
     let mut socket_set_entries: [SocketStorage; 3] = Default::default();
-    let mut stack =
-        client::network::create_stack(peripherals.WIFI, &mut socket_set_entries, &radio_init);
+    let rng = esp_hal::rng::Rng::new();
+
+    let (mut wifi_controller, interfaces) =
+        esp_radio::wifi::new(&radio_init, peripherals.WIFI, Default::default())
+            .expect("Failed to initialize Wi-Fi controller");
+
+    let mut device = interfaces.sta;
+    let mut socket_set = SocketSet::new(&mut socket_set_entries[..]);
+    let mut dhcp_socket = smoltcp::socket::dhcpv4::Socket::new();
+    // we can set a hostname here (or add other DHCP options)
+    dhcp_socket.set_outgoing_options(&[DhcpOption {
+        kind: 12,
+        data: b"implRust",
+    }]);
+    socket_set.add(dhcp_socket);
+
+    let now = || Instant::now().duration_since_epoch().as_millis();
+    let stack = Stack::new(
+        create_interface(&mut device),
+        device,
+        socket_set,
+        now,
+        rng.random(),
+    );
+
+    log::info!("Connecting to Wi-Fi...");
+
+    connect_to_wifi(
+        &mut wifi_controller,
+        NetworkConfig {
+            ssid: env!("WIFI_SSID"),
+            password: env!("WIFI_PASSWORD"),
+        },
+    )
+    .expect("Failed to connect to Wi-Fi");
+
+    log::info!("Acquiring IP address via DHCP...");
+    loop {
+        stack.work();
+        if stack.is_iface_up() {
+            log::info!("IP acquired: {:?}", stack.get_ip_info());
+            break;
+        }
+    }
 
     let dev_config = DevConfig::new(
         Output::new(peripherals.GPIO13, Level::Low, OutputConfig::default()), // SCK
@@ -67,18 +116,22 @@ fn main() -> ! {
     log::info!("Clearing the e-paper display...");
     let mut epd = client::epd13in3::EPD13in3e::new(dev_config);
 
-    let mut rx_buffer = [0u8; 1024];
-    let mut tx_buffer = [0u8; 1024];
+    let mut rx_buffer = [0u8; 1124];
+    let mut tx_buffer = [0u8; 1124];
     let server_address =
         smoltcp::wire::IpAddress::Ipv4(Ipv4Addr::from_str(env!("SERVER_ADDRESS")).unwrap());
     let server_port: u16 = env!("SERVER_PORT").parse().unwrap();
 
     let response = b"Ok";
     let number_of_pixels_in_bytes = (epd13in3::EPD_HEIGHT * epd13in3::EPD_WIDTH / 2) as usize;
+
     let mut socket = stack.get_socket(&mut rx_buffer, &mut tx_buffer);
     loop {
-        info!("Opening socket to server...");
         socket.work();
+        info!(
+            "Opening socket to server {:?}:{:?}...",
+            server_address, server_port
+        );
         if let Err(e) = socket.open(server_address, server_port) {
             log::error!("Failed to open socket: {:?}", e);
             continue;
@@ -108,9 +161,13 @@ fn main() -> ! {
                     {
                         epd.send_data_bytes(&buff_reader[..n]);
                     } else if n + buffer_read == (number_of_pixels_in_bytes / 2) {
+                        log::info!("Finished reading left panel data.");
                         epd.send_data_bytes(&buff_reader[..n]);
                         epd.select_right_panel();
                     } else {
+                        log::info!(
+                            "Finished reading left panel data. Starting to read right panel data."
+                        );
                         epd.send_data_bytes(
                             &buff_reader[..(number_of_pixels_in_bytes / 2 - buffer_read)],
                         );
@@ -134,7 +191,13 @@ fn main() -> ! {
                 log::error!("Socket write error: {:?}", e);
                 break;
             }
+            if let Err(e) = socket.flush() {
+                log::error!("Socket flush error: {:?}", e);
+                break;
+            }
         }
+        log::info!("Finished reading from socket. Total bytes read: {buffer_read}");
+        epd.turn_on_display();
 
         info!("Hello world!");
         let delay_start = Instant::now();
