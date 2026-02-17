@@ -1,10 +1,4 @@
-use blocking_network_stack::Stack;
-use esp_hal::time::Instant;
 use esp_radio::wifi::{self, ClientConfig, WifiController};
-use smoltcp::{
-    iface::{SocketSet, SocketStorage},
-    wire::DhcpOption,
-};
 
 pub struct NetworkConfig {
     pub ssid: &'static str,

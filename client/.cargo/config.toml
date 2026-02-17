@@ -5,6 +5,9 @@ runner = "espflash flash --monitor --chip esp32"
 ESP_LOG="info"
 WIFI_SSID="your-ssid"
 WIFI_PASSWORD="your-password"
+SERVER_ADDRESS=""
+SERVER_PORT="2025"
+REFRESH_RATE="10"
 
 [build]
 rustflags = [

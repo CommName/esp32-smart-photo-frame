@@ -16,9 +16,9 @@ use embedded_io::{Read, Write};
 use esp_hal::clock::CpuClock;
 use esp_hal::gpio::{Input, InputConfig, Level, Output, OutputConfig, Pull};
 use esp_hal::main;
+use esp_hal::rtc_cntl::sleep::TimerWakeupSource;
 use esp_hal::time::{Duration, Instant};
 use esp_hal::timer::timg::TimerGroup;
-use esp_radio::wifi::{self, ClientConfig, WifiController};
 use log::info;
 use smoltcp::{
     iface::{SocketSet, SocketStorage},
@@ -41,11 +41,14 @@ esp_bootloader_esp_idf::esp_app_desc!();
 #[main]
 fn main() -> ! {
     // generator version: 1.0.0
+    let refresh_rate = core::time::Duration::from_mins(env!("REFRESH_RATE").parse().unwrap_or(10));
 
     esp_println::logger::init_logger(log::LevelFilter::Info);
 
     let config = esp_hal::Config::default().with_cpu_clock(CpuClock::max());
     let peripherals = esp_hal::init(config);
+
+    let mut rtc = esp_hal::rtc_cntl::Rtc::new(peripherals.LPWR);
 
     esp_alloc::heap_allocator!(#[unsafe(link_section = ".dram2_uninit")] size: 98767);
 
@@ -202,7 +205,9 @@ fn main() -> ! {
 
         let delay_start = Instant::now();
         socket.close();
-        while delay_start.elapsed() < Duration::from_minutes(5) {}
+
+        let timer = TimerWakeupSource::new(refresh_rate);
+        rtc.sleep_deep(&[&timer]);
     }
 
     // for inspiration have a look at the examples at https://github.com/esp-rs/esp-hal/tree/esp-hal-v1.0.0/examples/src/bin
