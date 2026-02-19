@@ -1,4 +1,4 @@
-use std::{cmp::min, str::FromStr, sync::Arc};
+use std::{str::FromStr, sync::Arc};
 
 use anyhow::Result;
 use tokio::{
@@ -52,6 +52,24 @@ pub async fn esp_server(app_data: Arc<AppData>) {
     }
 }
 
+pub async fn refresh_images(app_data: Arc<AppData>, image_api: Immich, album_id: Uuid) {
+    loop {
+        println!("Refreshing images from Immich...");
+        if let Ok(images) = image_api.get_photos(album_id).await {
+            let images = images
+                .into_iter()
+                .map(|bytes| {
+                    let image = process_image(bytes).unwrap();
+                    ProccessedImage::from(image)
+                })
+                .collect();
+            app_data.set_images(images);
+        }
+        println!("Images refreshed. Next refresh in 10 minutes.");
+        tokio::time::sleep(tokio::time::Duration::from_hours(12)).await;
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     const IMMICH_SERVER: &str = env!("IMMICH_SERVER");
@@ -63,20 +81,15 @@ async fn main() -> Result<()> {
     let image_api = Immich::new(IMMICH_SERVER.to_string(), IMMICH_TOKEN.to_string());
 
     println!("Fetching photos from Immich...");
-    let images = image_api
-        .get_photos(immich_album)
-        .await?
-        .into_iter()
-        .enumerate()
-        .map(|(index, bytes)| {
-            let image = process_image(bytes).unwrap();
-            ProccessedImage::from(image)
-        })
-        .collect();
+    let app_data = Arc::new(AppData::default());
+
+    tokio::spawn(refresh_images(
+        Arc::clone(&app_data),
+        image_api,
+        immich_album,
+    ));
 
     println!("Initialization complete, starting server...");
-    let app_data = Arc::new(AppData::default());
-    app_data.set_images(images);
     esp_server(Arc::clone(&app_data)).await;
 
     Ok(())

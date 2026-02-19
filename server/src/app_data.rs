@@ -16,6 +16,9 @@ pub struct ProccessedImage {
 impl AppData {
     pub fn get_random_image(&self) -> ProccessedImage {
         let images = self.images.read().unwrap();
+        if images.len() == 0 {
+            return ProccessedImage::default();
+        }
         let index = rand::random_range(0..images.len());
         images[index].clone()
     }
