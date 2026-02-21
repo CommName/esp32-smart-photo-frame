@@ -1,5 +1,22 @@
 use image::{ImageBuffer, Rgb, imageops::ColorMap};
 
+fn calculate_crop_cordinates(width: u32, height: u32) -> (u32, u32, u32, u32) {
+    let target_aspect = 4.0 / 3.0;
+    let current_aspect = width as f32 / height as f32;
+
+    if current_aspect > target_aspect {
+        let new_width = (height as f32 * target_aspect).round() as u32;
+        let x = (width - new_width) / 2;
+        (x, 0, new_width, height)
+    } else if current_aspect < target_aspect {
+        let new_height = (width as f32 / target_aspect).round() as u32;
+        let y = (height - new_height) / 2;
+        (0, y, width, new_height)
+    } else {
+        (0, 0, width, height)
+    }
+}
+
 pub fn process_image(image: Vec<u8>) -> Result<ImageBuffer<Rgb<u8>, Vec<u8>>, image::ImageError> {
     let mut img = image::load_from_memory(&image)?;
 
@@ -7,8 +24,10 @@ pub fn process_image(image: Vec<u8>) -> Result<ImageBuffer<Rgb<u8>, Vec<u8>>, im
     if img.height() > img.width() {
         img = img.rotate90();
     }
-    let img = img.to_rgb8();
+    let mut orig_img = img.to_rgb8();
 
+    let (x, y, width, height) = calculate_crop_cordinates(img.width(), img.height());
+    let img = image::imageops::crop(&mut orig_img, x, y, width, height).to_image();
     let mut img = image::imageops::resize(&img, 1600, 1200, image::imageops::FilterType::Lanczos3);
 
     let color_map = Epd13in3ColorMap {
